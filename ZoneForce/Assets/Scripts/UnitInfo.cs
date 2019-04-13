@@ -4,36 +4,43 @@ using UnityEngine;
 
 public class UnitInfo
 {
+    public int id;
     public string type;
     public float maxHealth;
-    public float currentHealth;
+
     public float attack;
     public float attackWaitTime;
     public float movementSpeed;
     public float attackRadius;
 
+    public float currentHealth;
     public float timeSinceLastAttack;
     public bool active;
     public float goalx;
-    public float goaly;
+    public float goalz;
+    public float x;
+    public float z;
+    public bool hasGoal;
     public bool hold;
 
 
-    public UnitInfo(string tType, float tMaxHealth, float tCurrentHealth, float tAttack, float tAttackWaitTime, 
+    public UnitInfo(int tId, string tType, float tMaxHealth, float tAttack, float tAttackWaitTime, 
     float tMovementSpeed, float tAttackRadius)
     {
+        id = tId;
         type = tType;
         maxHealth = tMaxHealth;
-        currentHealth = tCurrentHealth;
         attack = tAttack;
         attackWaitTime = tAttackWaitTime;
         movementSpeed = tMovementSpeed;
         attackRadius = tAttackRadius;
 
+        currentHealth = maxHealth;
         timeSinceLastAttack = 0.0f;
         active = false;
         goalx = 0.0f;
-        goaly = 0.0f;
+        goalz = 0.0f;
         hold = false;
+        hasGoal = false;
     }
 }

@@ -1,0 +1,2 @@
+/Users/andrewzhang/Documents/ZoneForce/ZoneForce/obj/Debug/Assembly-CSharp.csprojAssemblyReference.cache
+/Users/andrewzhang/Documents/ZoneForce/ZoneForce/obj/Debug/Assembly-CSharp.csproj.CoreCompileInputs.cache
