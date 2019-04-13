@@ -22,6 +22,10 @@ public class UnitInfo
     public float z;
     public bool hasGoal;
     public bool hold;
+    public bool unclutterStatus;
+    public float unclutterx;
+    public float unclutterz;
+    public bool finishedMovement;
 
 
     public UnitInfo(int tId, string tType, float tMaxHealth, float tAttack, float tAttackWaitTime, 
@@ -42,5 +46,10 @@ public class UnitInfo
         goalz = 0.0f;
         hold = false;
         hasGoal = false;
+
+        unclutterStatus = false;
+        unclutterx = 0.0f;
+        unclutterz = 0.0f;
+        finishedMovement = false;
     }
 }

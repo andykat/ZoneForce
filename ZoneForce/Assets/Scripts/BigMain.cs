@@ -20,7 +20,7 @@ public class BigMain : MonoBehaviour
     private List<List<Transform>> UnitHealthBarCanvas = new List<List<Transform>>();
     private int id = 0;
     private const float Y = 1.2f;
-    private float unitRadius = 1.5f;
+    private float unitRadius = 0.5f;
     private string[] playerUnitTypes;
     private Dictionary<string, Dictionary<string, float>> unitStats = 
     new Dictionary<string, Dictionary<string, float>>();
@@ -35,13 +35,15 @@ public class BigMain : MonoBehaviour
     private List<int> unitsSelected;
     private float attackPointAlpha = 1.0f;
     private bool attackPointDisplayed = false;
+    private List<List<Vector2Int>> groupMovementIndexes = new List<List<Vector2Int>>();
+    private List<Vector2> groupMovementGoals = new List<Vector2>();
+    private List<List<Vector2>> groupUnclutterPositions = new List<List<Vector2>>();
+    private List<int> groupUnclutterIndexes = new List<int>();
 
     void Start()
     {
         // initialize constant variables and units
         StartInitialization();
-
-
     }
 
     // Update is called once per frame
@@ -78,21 +80,31 @@ public class BigMain : MonoBehaviour
             Vector3 dir = ray.direction;
             Vector3 orig = ray.origin;
             (float x, float z) = getClickPoint(orig, dir);
-            attackPointDisplay.transform.position = new Vector3(x, 1.12f, z);
+            attackPointDisplay.transform.position = new Vector3(x, 1.15f, z);
             attackPointDisplayed = true;
             attackPointAlpha = 1.0f;
             attackPointAlphaChange();
 
             if(selectedUnits)
             {
-                for(int i=0; i<unitsSelected.Count; i++)
+                List<Vector2Int> group = new List<Vector2Int>();
+                for (int i=0; i<unitsSelected.Count; i++)
                 {
                     int index = unitsSelected[i];
-                    UnitInfos[0][i].hasGoal = true;
-                    UnitInfos[0][i].goalx = x;
-                    UnitInfos[0][i].goalz = z;
+                    //UnitInfos[0][i].hasGoal = true;
+                    //UnitInfos[0][i].goalx = x;
+                    //UnitInfos[0][i].goalz = z;
+                    removeUnitFromPreviousGroupMovements(0, index);
+                    group.Add(new Vector2Int(0, index));
+                    UnitGOAnimators[0][index].Play(getAnimationName(playerUnitTypes[0], "walk"));
+                    UnitInfos[0][index].hasGoal = true;
+                    UnitInfos[0][index].unclutterStatus = false;
+                    UnitInfos[0][index].finishedMovement = false;
                 }
-
+                groupMovementIndexes.Add(group);
+                groupMovementGoals.Add(new Vector2(x, z));
+                groupUnclutterIndexes.Add(0);
+                groupUnclutterPositions.Add(calculateUnclutterPositions(x, z, unitsSelected.Count));
             }
         }
         if (Input.GetMouseButtonUp(0))
@@ -131,7 +143,7 @@ public class BigMain : MonoBehaviour
                 {
                     if (selectedUnits)
                     {
-                        unSelectUnits(unitsSelected);
+                        unSelectUnits(selectSave);
                     }
                     selectedUnits = true;
                     showSelected();
@@ -147,26 +159,115 @@ public class BigMain : MonoBehaviour
         healthBarRotation();
     }
 
+
+
     void unitMovement()
     {
+        //move units
+        for(int i=0;i<groupMovementIndexes.Count;i++)
+        {
+            List<Vector2Int> group = groupMovementIndexes[i];
+            Vector2 goal = groupMovementGoals[i];
+            for(int j=0;j<group.Count;j++)
+            {
+                if(UnitInfos[group[j].x][group[j].y].hasGoal)
+                {
+                    GameObject unit = UnitGOs[group[j].x][group[j].y];
+                    Vector2 unitPosition = new Vector2(unit.transform.position.x,
+                    unit.transform.position.z);
+                    float angle = - Mathf.Atan2(goal.y - unitPosition.y, goal.x - unitPosition.x) * Mathf.Rad2Deg + 90.0f;
 
+
+                    Vector2 direction = goal - unitPosition;
+                    direction.Normalize();
+                    unit.transform.eulerAngles = new Vector3(0.0f, angle, 0.0f);
+                    Vector3 newPos = unit.transform.position + (new Vector3(direction.x, 0.0f, direction.y))
+                     * UnitInfos[group[j].x][group[j].y].movementSpeed * Time.deltaTime;
+                    unit.transform.position = newPos;
+                    float distance = Vector2.Distance(newPos, new Vector3(goal.x, Y, goal.y));
+                    if(distance < 0.2f)
+                    {
+                        UnitInfos[group[j].x][group[j].y].unclutterx = 
+                        groupUnclutterPositions[i][groupUnclutterIndexes[i]].x;
+                        UnitInfos[group[j].x][group[j].y].unclutterz = 
+                        groupUnclutterPositions[i][groupUnclutterIndexes[i]].y;
+                        UnitInfos[group[j].x][group[j].y].unclutterStatus = true;
+                        UnitInfos[group[j].x][group[j].y].hasGoal = false;
+                        groupUnclutterIndexes[i] += 1;
+
+                    }
+                }
+                else if(UnitInfos[group[j].x][group[j].y].unclutterStatus)
+                {
+                    GameObject unit = UnitGOs[group[j].x][group[j].y];
+                    Vector2 unitPosition = new Vector2(unit.transform.position.x,
+                    unit.transform.position.z);
+                    Vector2 unclutterGoal = new Vector2(UnitInfos[group[j].x][group[j].y].unclutterx,
+                     UnitInfos[group[j].x][group[j].y].unclutterz);
+                    float angle = -Mathf.Atan2(unclutterGoal.y - unitPosition.y,
+                     unclutterGoal.x - unitPosition.x) * Mathf.Rad2Deg + 90.0f;
+
+
+                    Vector2 direction = unclutterGoal - unitPosition;
+                    direction.Normalize();
+                    unit.transform.eulerAngles = new Vector3(0.0f, angle, 0.0f);
+                    Vector3 newPos = unit.transform.position + (new Vector3(direction.x, 0.0f, direction.y))
+                     * UnitInfos[group[j].x][group[j].y].movementSpeed * Time.deltaTime;
+                    unit.transform.position = newPos;
+                    float distance = Vector2.Distance(newPos, new Vector3(unclutterGoal.x, Y, unclutterGoal.y));
+                    if (distance < 0.1f)
+                    {
+                        UnitInfos[group[j].x][group[j].y].unclutterStatus = false;
+                        UnitInfos[group[j].x][group[j].y].finishedMovement = true;
+                        UnitGOAnimators[group[j].x][group[j].y].Play(
+                        getAnimationName(playerUnitTypes[group[j].x], "idle"));
+                    }
+                }
+            }
+        }
+    }
+
+    void removeUnitFromPreviousGroupMovements(int playerIndex, int unitIndex)
+    {
+        //check to see if the unit is in any other groups
+        for (int i = 0; i < groupMovementIndexes.Count; i++)
+        {
+            for (int j = 0; j < groupMovementIndexes[i].Count; j++)
+            {
+                if(playerIndex == groupMovementIndexes[i][j].x && 
+                unitIndex == groupMovementIndexes[i][j].y)
+                {
+                    groupMovementIndexes[i].RemoveAt(j);
+                    j--;
+                }
+            }
+
+        }
 
     }
+
     (int,int) unitCollide(int ti, int tj)
     {
-        int collideI = -1;
-        int collideJ = -1;
+        float ux = UnitInfos[ti][tj].x;
+        float uz = UnitInfos[ti][tj].z;
 
         for(int i=0;i<4;i++)
         {
             for(int j=0;j<4;j++)
             {
+                if(ti == i && tj == j)
+                {
+                    continue;
+                }
 
-
+                if(distance_squared(ux, uz, UnitInfos[i][j].x, UnitInfos[i][j].z) < 4*unitRadius*unitRadius)
+                {
+                    return (i, j);
+                }
             }
 
         }
-        return (collideI, collideJ);
+        return (-1, -1);
     }
     void attackPointAlphaChange()
     {
@@ -259,6 +360,11 @@ public class BigMain : MonoBehaviour
             {
                 return "polearm_02_walk";
             }
+            if(action == "idle")
+            {
+                return "polearm_01_idle";
+
+            }
         }
 
         return "";
@@ -347,9 +453,9 @@ public class BigMain : MonoBehaviour
         unitStats["archer"] = archerStats;
 
         float edgeValue = 23.0f;
-        float[] playerStartX = new float[4] { -edgeValue, -edgeValue, edgeValue, edgeValue };
-        float[] playerStartZ = new float[4] { -edgeValue, edgeValue, edgeValue, -edgeValue };
-        float[] playerStartYRot = new float[4] { 0.0f, 180.0f, 180.0f, 0.0f };
+        float[] playerStartX = { -edgeValue, -edgeValue, edgeValue, edgeValue };
+        float[] playerStartZ = { -edgeValue, edgeValue, edgeValue, -edgeValue };
+        float[] playerStartYRot = { 0.0f, 180.0f, 180.0f, 0.0f };
 
 
         //create units
@@ -360,10 +466,10 @@ public class BigMain : MonoBehaviour
             UnitInfos.Add(new List<UnitInfo>());
             UnitHealthBars.Add(new List<Image>());
             UnitHealthBarCanvas.Add(new List<Transform>());
-            for (int j = 0; j < 5; j++)
+            for (int j = 0; j < 9; j++)
             {
                 float fj = (float)(j - 1);
-                Vector3 startVector = new Vector3(playerStartX[i] + fj * unitRadius, Y, playerStartZ[i]);
+                Vector3 startVector = new Vector3(playerStartX[i] + fj * 1.5f, Y, playerStartZ[i]);
                 UnitGOs[i].Add(Instantiate(GetUnitObject(playerUnitTypes[i]), startVector, Quaternion.identity));
                 UnitGOs[i][j].transform.eulerAngles = new Vector3(0.0f, playerStartYRot[i], 0.0f);
                 UnitGOs[i][j].name = i.ToString() + "_" + id.ToString();
@@ -379,7 +485,7 @@ public class BigMain : MonoBehaviour
                 UnitInfo ui = new UnitInfo(id, playerUnitTypes[i], unitStats[playerUnitTypes[i]]["maxHealth"],
                  unitStats[playerUnitTypes[i]]["attack"], unitStats[playerUnitTypes[i]]["attackWaitTime"],
                  unitStats[playerUnitTypes[i]]["movementSpeed"], unitStats[playerUnitTypes[i]]["attackRadius"]);
-                ui.x = playerStartX[i] + fj * unitRadius;
+                ui.x = playerStartX[i] + fj * 1.5f;
                 ui.z = playerStartZ[i];
                 UnitInfos[i].Add(ui);
                 
@@ -442,6 +548,155 @@ public class BigMain : MonoBehaviour
         }
     }
 
+    List<Vector2> calculateUnclutterPositions(float x, float z, int n)
+    {
+        float unclutterRadius = 1.7f;
+        List<Vector2> unclutterPositions = new List<Vector2>();
+        unclutterPositions.Add(new Vector2(x, z));
+        List<Vector2> left = new List<Vector2>();
+        left.Add(new Vector2(x, z));
+        List<Vector2> right = new List<Vector2>();
+        right.Add(new Vector2(x, z));
+        List<Vector2> top = new List<Vector2>();
+        top.Add(new Vector2(x, z));
+        List<Vector2> bottom = new List<Vector2>();
+        bottom.Add(new Vector2(x, z));
+        Vector2 cornerTopLeft = new Vector2(x, z);
+        Vector2 cornerTopRight = new Vector2(x, z);
+        Vector2 cornerBottomLeft = new Vector2(x, z);
+        Vector2 cornerBottomRight = new Vector2(x, z);
+
+        int count = 1;
+
+        while (count < n)
+        {
+            //left
+            List<Vector2> newLeft = new List<Vector2>();
+            for (int i = 0; i < left.Count; i++)
+            {
+                Vector2 newpos = left[i] + (new Vector2(-unclutterRadius, 0.0f));
+                unclutterPositions.Add(newpos);
+                newLeft.Add(newpos);
+                count += 1;
+                if (count >= n)
+                {
+                    break;
+                }
+            }
+            if (count >= n)
+            {
+                break;
+            }
+            left = newLeft;
+
+            //right
+            List<Vector2> newRight = new List<Vector2>();
+            for (int i = 0; i < right.Count; i++)
+            {
+                Vector2 newpos = right[i] + (new Vector2(unclutterRadius, 0.0f));
+                unclutterPositions.Add(newpos);
+                newRight.Add(newpos);
+                count += 1;
+                if (count >= n)
+                {
+                    break;
+                }
+            }
+            if (count >= n)
+            {
+                break;
+            }
+            right = newRight;
+
+            //top
+            List<Vector2> newTop = new List<Vector2>();
+            for (int i = 0; i < top.Count; i++)
+            {
+                Vector2 newpos = top[i] + (new Vector2(0.0f, unclutterRadius));
+                unclutterPositions.Add(newpos);
+                newTop.Add(newpos);
+                count += 1;
+                if (count >= n)
+                {
+                    break;
+                }
+            }
+            if (count >= n)
+            {
+                break;
+            }
+            top = newTop;
+
+            //bottom
+            List<Vector2> newBottom = new List<Vector2>();
+            for (int i = 0; i < bottom.Count; i++)
+            {
+                Vector2 newpos = bottom[i] + (new Vector2(0.0f, -unclutterRadius));
+                unclutterPositions.Add(newpos);
+                newBottom.Add(newpos);
+                count += 1;
+                if (count >= n)
+                {
+                    break;
+                }
+            }
+            if (count >= n)
+            {
+                break;
+            }
+            bottom = newBottom;
+
+            //topleft corner
+            Vector2 newTopLeft = cornerTopLeft + (new Vector2(-unclutterRadius, unclutterRadius));
+            unclutterPositions.Add(newTopLeft);
+            cornerTopLeft = newTopLeft;
+            left.Add(newTopLeft);
+            top.Add(newTopLeft);
+            count += 1;
+            if (count >= n)
+            {
+                break;
+            }
+
+            //top right corner
+            Vector2 newTopRight = cornerTopRight + (new Vector2(unclutterRadius, unclutterRadius));
+            unclutterPositions.Add(newTopRight);
+            cornerTopRight = newTopRight;
+            right.Add(newTopRight);
+            top.Add(newTopRight);
+            count += 1;
+            if (count >= n)
+            {
+                break;
+            }
+
+            //bottom left corner
+            Vector2 newBottomLeft = cornerBottomLeft + (new Vector2(-unclutterRadius, -unclutterRadius));
+            unclutterPositions.Add(newBottomLeft);
+            cornerBottomLeft = newBottomLeft;
+            left.Add(newBottomLeft);
+            bottom.Add(newBottomLeft);
+            count += 1;
+            if (count >= n)
+            {
+                break;
+            }
+
+            //bottom right corner
+            Vector2 newBottomRight = cornerBottomRight + (new Vector2(unclutterRadius, -unclutterRadius));
+            unclutterPositions.Add(newBottomRight);
+            cornerBottomRight = newBottomRight;
+            right.Add(newBottomRight);
+            bottom.Add(newBottomRight);
+            count += 1;
+            if (count >= n)
+            {
+                break;
+            }
+        }
+
+        return unclutterPositions;
+    }
 
 
 
