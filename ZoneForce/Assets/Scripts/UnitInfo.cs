@@ -20,12 +20,13 @@ public class UnitInfo
     public float goalz;
     public float x;
     public float z;
-    public bool hasGoal;
-    public bool hold;
-    public bool unclutterStatus;
     public float unclutterx;
     public float unclutterz;
-    public bool finishedMovement;
+    public string status = "idle";
+    public Vector2 moveAttackCoordinate;
+    public int moveattackTargetId;
+    public float recalculateAttackMoveTime;
+
 
 
     public UnitInfo(int tId, string tType, float tMaxHealth, float tAttack, float tAttackWaitTime, 
@@ -44,12 +45,12 @@ public class UnitInfo
         active = false;
         goalx = 0.0f;
         goalz = 0.0f;
-        hold = false;
-        hasGoal = false;
 
-        unclutterStatus = false;
         unclutterx = 0.0f;
         unclutterz = 0.0f;
-        finishedMovement = false;
+
+        moveAttackCoordinate = new Vector2(0.0f, 0.0f);
+        moveattackTargetId = 0;
+        recalculateAttackMoveTime = 0.0f;
     }
 }

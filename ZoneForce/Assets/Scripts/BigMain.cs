@@ -39,11 +39,36 @@ public class BigMain : MonoBehaviour
     private List<Vector2> groupMovementGoals = new List<Vector2>();
     private List<List<Vector2>> groupUnclutterPositions = new List<List<Vector2>>();
     private List<int> groupUnclutterIndexes = new List<int>();
+    private float moveToAttackRadius = 8.0f;
+    private List<Vector2> unitMeleeAttackPositions;
+    private Dictionary<int, Vector2Int> unitIdToIndex = new Dictionary<int, Vector2Int>();
+
+    private List<List<Vector2>> unitPositions = new List<List<Vector2>>();
+
+    private List<float> playerUnitSpawnTime;
+    private List<float> timeSinceLastSpawn;
+
+    float[] playerStartX;
+    float[] playerStartZ;
+    float[] playerStartYRot;
+
+    private int[] unitSpawnMax = { 12, 12, 12, 12 };
 
     void Start()
     {
         // initialize constant variables and units
         StartInitialization();
+
+        unitMeleeAttackPositions = calculateUnclutterPositions(0.0f, 0.0f, 9, 1.0f);
+        unitMeleeAttackPositions.RemoveAt(0);
+        for(int i=0;i<4;i++)
+        {
+            for(int j=0;j<UnitInfos[i].Count;j++)
+            {
+                unitIdToIndex.Add(UnitInfos[i][j].id, new Vector2Int(i, j));
+            }
+        }
+
     }
 
     // Update is called once per frame
@@ -91,20 +116,15 @@ public class BigMain : MonoBehaviour
                 for (int i=0; i<unitsSelected.Count; i++)
                 {
                     int index = unitsSelected[i];
-                    //UnitInfos[0][i].hasGoal = true;
-                    //UnitInfos[0][i].goalx = x;
-                    //UnitInfos[0][i].goalz = z;
                     removeUnitFromPreviousGroupMovements(0, index);
                     group.Add(new Vector2Int(0, index));
-                    UnitGOAnimators[0][index].Play(getAnimationName(playerUnitTypes[0], "walk"));
-                    UnitInfos[0][index].hasGoal = true;
-                    UnitInfos[0][index].unclutterStatus = false;
-                    UnitInfos[0][index].finishedMovement = false;
+                    UnitGOAnimators[0][index].Play(getAnimationName(UnitInfos[0][index].type, "walk"));
+                    UnitInfos[0][index].status = "hasgoal";
                 }
                 groupMovementIndexes.Add(group);
                 groupMovementGoals.Add(new Vector2(x, z));
                 groupUnclutterIndexes.Add(0);
-                groupUnclutterPositions.Add(calculateUnclutterPositions(x, z, unitsSelected.Count));
+                groupUnclutterPositions.Add(calculateUnclutterPositions(x, z, unitsSelected.Count, 1.7f));
             }
         }
         if (Input.GetMouseButtonUp(0))
@@ -157,25 +177,151 @@ public class BigMain : MonoBehaviour
         unitMovement();
         attackPointAlphaChange();
         healthBarRotation();
+        unitSpawn();
     }
 
+    void unitSpawn()
+    {
+        for(int i=0;i<4;i++)
+        {
+            timeSinceLastSpawn[i] += Time.deltaTime;
+            if(timeSinceLastSpawn[i] > playerUnitSpawnTime[i] && 
+            UnitGOs[i].Count < unitSpawnMax[i])
+            {
+                timeSinceLastSpawn[i] = 0.0f;
+                bool openPosAvailable = false;
+                int count = 0;
+                Vector2 openPos = new Vector2(0.0f, 0.0f);
+                while(!openPosAvailable || count < 1000)
+                {
+                    Vector2 pos = new Vector2(Random.Range(playerStartX[i] - 3.0f, playerStartX[i] + 3.0f),
+                    Random.Range(playerStartZ[i] - 3.0f, playerStartZ[i] + 3.0f));
+                    openPosAvailable = true;
+                    for(int j=0;j<unitPositions.Count;j++)
+                    {
+                        for(int k=0;k<unitPositions[j].Count;k++)
+                        {
+                            if(Vector2.Distance(pos, unitPositions[j][k]) < 1.0f)
+                            {
+                                openPosAvailable = false;
+                                break;
+                            }
+                        }
+                        if(!openPosAvailable)
+                        {
+                            break;
+                        }
+                    }
+                    if(openPosAvailable)
+                    {
+                        openPos = pos;
+                        break;
+                    }
+                    count += 1;
+                }
 
+                if(openPosAvailable)
+                {
+                    Vector3 startVector = new Vector3(openPos.x, Y, openPos.y);
+                    UnitGOs[i].Add(Instantiate(GetUnitObject(playerUnitTypes[i]), startVector, Quaternion.identity));
+                    int j = UnitGOs[i].Count - 1;
+                    UnitGOs[i][j].transform.eulerAngles = new Vector3(0.0f, playerStartYRot[i], 0.0f);
+                    UnitGOs[i][j].name = i.ToString() + "_" + id.ToString();
+                    UnitGOAnimators[i].Add(UnitGOs[i][j].GetComponent<Animator>());
+                    Transform canvas = UnitGOs[i][j].transform.Find("Canvas");
+                    UnitHealthBarCanvas[i].Add(canvas);
+                    //Transform healthBG = canvas.GetChild(0);
+                    //Transform healthBar = healthBG.GetChild(0);
+                    Transform healthBG = canvas.Find("HealthBG");
+                    Transform healthBar = healthBG.Find("HealthBar");
+                    UnitHealthBars[i].Add(healthBar.gameObject.GetComponent<Image>());
+
+                    UnitInfo ui = new UnitInfo(id, playerUnitTypes[i], unitStats[playerUnitTypes[i]]["maxHealth"],
+                     unitStats[playerUnitTypes[i]]["attack"], unitStats[playerUnitTypes[i]]["attackWaitTime"],
+                     unitStats[playerUnitTypes[i]]["movementSpeed"], unitStats[playerUnitTypes[i]]["attackRadius"]);
+                    ui.x = openPos.x;
+                    ui.z = openPos.y;
+                    UnitInfos[i].Add(ui);
+
+                    unitIdToIndex.Add(UnitInfos[i][j].id, new Vector2Int(i, j));
+
+
+                    id += 1;
+                }
+                else
+                {
+                    timeSinceLastSpawn[i] = -999999.0f;
+
+                }
+            }
+
+        }
+    }
 
     void unitMovement()
     {
+        unitPositions = new List<List<Vector2>>();
+
+        for (int i = 0; i < 4; i++)
+        {
+            List<Vector2> row = new List<Vector2>();
+            for (int j = 0; j < UnitGOs[i].Count; j++)
+            {
+                row.Add(new Vector2(UnitGOs[i][j].transform.position.x,
+                 UnitGOs[i][j].transform.position.z));
+            }
+            unitPositions.Add(row);
+        }
+
+        moveUnits();
+
+        moveToAttack();
+
+        findAttackTargetsForIdleUnits();
+    }
+    // a - attacker
+    // v - victim
+    void attackUnit(int ai, int aj, int vi, int vj, Vector2 aPos, Vector2 vPos)
+    {
+        if(UnitInfos[ai][aj].timeSinceLastAttack > UnitInfos[ai][aj].attackWaitTime)
+        {
+            if(ai == 0 && aj == 0)
+            {
+                print(UnitInfos[ai][aj].timeSinceLastAttack);
+                print(UnitInfos[ai][aj].attackWaitTime);
+                print("");
+            }
+            //rotate to face enemy
+            float angle = -Mathf.Atan2(vPos.y - aPos.y, vPos.x - aPos.x) * Mathf.Rad2Deg + 90.0f;
+            UnitGOs[ai][aj].transform.eulerAngles = new Vector3(0.0f, angle, 0.0f);
+            //attack animation
+            //UnitGOAnimators[ai][aj].
+            //UnitGOAnimators[ai][aj].enabled = true;
+            UnitGOAnimators[ai][aj].Play(getAnimationName(UnitInfos[ai][aj].type, "attack"));
+
+            //health reduction
+            float animationLength = 0.8f;
+            UnitInfos[vi][vj].currentHealth -= UnitInfos[ai][aj].attack;
+            StartCoroutine(reduceHealthBar(animationLength, vi, vj));
+
+            UnitInfos[ai][aj].timeSinceLastAttack = 0.0f;
+        }
+
+    }
+    void moveUnits()
+    {
         //move units
-        for(int i=0;i<groupMovementIndexes.Count;i++)
+        for (int i = 0; i < groupMovementIndexes.Count; i++)
         {
             List<Vector2Int> group = groupMovementIndexes[i];
             Vector2 goal = groupMovementGoals[i];
-            for(int j=0;j<group.Count;j++)
+            for (int j = 0; j < group.Count; j++)
             {
-                if(UnitInfos[group[j].x][group[j].y].hasGoal)
+                if (UnitInfos[group[j].x][group[j].y].status == "hasgoal")
                 {
                     GameObject unit = UnitGOs[group[j].x][group[j].y];
-                    Vector2 unitPosition = new Vector2(unit.transform.position.x,
-                    unit.transform.position.z);
-                    float angle = - Mathf.Atan2(goal.y - unitPosition.y, goal.x - unitPosition.x) * Mathf.Rad2Deg + 90.0f;
+                    Vector2 unitPosition = unitPositions[group[j].x][group[j].y];
+                    float angle = -Mathf.Atan2(goal.y - unitPosition.y, goal.x - unitPosition.x) * Mathf.Rad2Deg + 90.0f;
 
 
                     Vector2 direction = goal - unitPosition;
@@ -185,23 +331,21 @@ public class BigMain : MonoBehaviour
                      * UnitInfos[group[j].x][group[j].y].movementSpeed * Time.deltaTime;
                     unit.transform.position = newPos;
                     float distance = Vector2.Distance(newPos, new Vector3(goal.x, Y, goal.y));
-                    if(distance < 0.2f)
+                    if (distance < 0.2f)
                     {
-                        UnitInfos[group[j].x][group[j].y].unclutterx = 
+                        UnitInfos[group[j].x][group[j].y].unclutterx =
                         groupUnclutterPositions[i][groupUnclutterIndexes[i]].x;
-                        UnitInfos[group[j].x][group[j].y].unclutterz = 
+                        UnitInfos[group[j].x][group[j].y].unclutterz =
                         groupUnclutterPositions[i][groupUnclutterIndexes[i]].y;
-                        UnitInfos[group[j].x][group[j].y].unclutterStatus = true;
-                        UnitInfos[group[j].x][group[j].y].hasGoal = false;
+                        UnitInfos[group[j].x][group[j].y].status = "unclutter";
                         groupUnclutterIndexes[i] += 1;
 
                     }
                 }
-                else if(UnitInfos[group[j].x][group[j].y].unclutterStatus)
+                else if (UnitInfos[group[j].x][group[j].y].status == "unclutter")
                 {
                     GameObject unit = UnitGOs[group[j].x][group[j].y];
-                    Vector2 unitPosition = new Vector2(unit.transform.position.x,
-                    unit.transform.position.z);
+                    Vector2 unitPosition = unitPositions[group[j].x][group[j].y];
                     Vector2 unclutterGoal = new Vector2(UnitInfos[group[j].x][group[j].y].unclutterx,
                      UnitInfos[group[j].x][group[j].y].unclutterz);
                     float angle = -Mathf.Atan2(unclutterGoal.y - unitPosition.y,
@@ -217,14 +361,208 @@ public class BigMain : MonoBehaviour
                     float distance = Vector2.Distance(newPos, new Vector3(unclutterGoal.x, Y, unclutterGoal.y));
                     if (distance < 0.1f)
                     {
-                        UnitInfos[group[j].x][group[j].y].unclutterStatus = false;
-                        UnitInfos[group[j].x][group[j].y].finishedMovement = true;
+                        UnitInfos[group[j].x][group[j].y].status = "idle";
                         UnitGOAnimators[group[j].x][group[j].y].Play(
-                        getAnimationName(playerUnitTypes[group[j].x], "idle"));
+                        getAnimationName(UnitInfos[group[j].x][group[j].y].type, "idle"));
                     }
                 }
             }
         }
+    }
+
+    void moveToAttack()
+    {
+        //handle move to attack
+        for (int i = 0; i < 4; i++)
+        {
+            for (int j = 0; j < unitPositions[i].Count; j++)
+            {
+                if (UnitInfos[i][j].status == "movetoattack")
+                {
+                    // update time since last attack
+                    UnitInfos[i][j].timeSinceLastAttack += Time.deltaTime;
+
+                    //check if need to recalculate attack target
+                    UnitInfos[i][j].recalculateAttackMoveTime += Time.deltaTime;
+                    Vector2Int enemyIndex = unitIdToIndex[UnitInfos[i][j].moveattackTargetId];
+                    if (UnitInfos[i][j].recalculateAttackMoveTime > 0.1f)
+                    {
+                        UnitInfos[i][j].recalculateAttackMoveTime = 0.0f;
+                        //did not find an attackable position
+                        if (!setMoveToAttack(new Vector2Int(i, j), enemyIndex))
+                        {
+                            UnitInfos[i][j].status = "idle";
+                            UnitGOAnimators[i][j].Play(
+                        getAnimationName(UnitInfos[i][j].type, "idle"));
+                        }
+                    }
+
+                    // check if can attack target
+                    Vector2 unitPosition = unitPositions[i][j];
+                    Vector2 enemyPosition = unitPositions[enemyIndex.x][enemyIndex.y];
+                    GameObject unit = UnitGOs[i][j];
+                    Vector2 goal = UnitInfos[i][j].moveAttackCoordinate;
+
+                    float distance = Vector2.Distance(unitPosition, new Vector2(goal.x, goal.y));
+                    if (distance < 0.1f || Vector2.Distance(unitPosition, enemyPosition) < UnitInfos[i][j].attackRadius)
+                    {
+                        // attack if within radius
+                        if (Vector2.Distance(unitPosition, enemyPosition) < UnitInfos[i][j].attackRadius)
+                        {
+                            attackUnit(i, j, enemyIndex.x, enemyIndex.y, unitPosition, enemyPosition);
+                        }
+                        else
+                        {
+                            //goal was not close enough to enemy, find new enemy.
+                            //!!! or try to find enemy new position again. could be handled by recalculate attack move
+                            UnitInfos[i][j].status = "idle";
+                            UnitGOAnimators[i][j].Play(
+                            getAnimationName(UnitInfos[i][j].type, "idle"));
+                        }
+
+                    }
+                    else
+                    {
+                        //not close enough to target
+                        //move to the target
+
+                        float angle = -Mathf.Atan2(goal.y - unitPosition.y, goal.x - unitPosition.x) * Mathf.Rad2Deg + 90.0f;
+
+
+                        Vector2 direction = goal - unitPosition;
+                        direction.Normalize();
+                        unit.transform.eulerAngles = new Vector3(0.0f, angle, 0.0f);
+                        Vector3 newPos = unit.transform.position + (new Vector3(direction.x, 0.0f, direction.y))
+                         * UnitInfos[i][j].movementSpeed * Time.deltaTime;
+                        unit.transform.position = newPos;
+                    }
+                }
+            }
+        }
+    }
+
+    void findAttackTargetsForIdleUnits()
+    {
+        // calculate whether units are in range of each other to attack
+        //!!!
+        for (int i = 0; i < 1; i++)
+        {
+            for (int j = 0; j < unitPositions[i].Count; j++)
+            {
+                if (UnitInfos[i][j].status != "idle")
+                {
+                    continue;
+                }
+
+                List<Vector2> attackablePositions = new List<Vector2>();
+                List<float> attackablePositionDistances = new List<float>();
+                List<Vector2Int> attackableIndexes = new List<Vector2Int>();
+                for (int k = 0; k < 4; k++)
+                {
+                    if (i == k)
+                    {
+                        continue;
+                    }
+
+                    for (int l = 0; l < unitPositions[k].Count; l++)
+                    {
+                        if (Vector2.Distance(unitPositions[i][j], unitPositions[k][l]) < moveToAttackRadius)
+                        {
+                            attackablePositionDistances.Add(Vector2.Distance(unitPositions[i][j], unitPositions[k][l]));
+                            attackableIndexes.Add(new Vector2Int(k, l));
+                            //setMoveToAttack(new Vector2Int(i, k), new Vector2Int(j, l));
+
+                        }
+
+                    }
+                }
+
+                // find the closest unit that we can attack
+                while (attackablePositionDistances.Count > 0)
+                {
+                    //find shortest distance
+                    int minIndex = findListMin(attackablePositionDistances);
+                    if (setMoveToAttack(new Vector2Int(i, j), attackableIndexes[minIndex]))
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        attackablePositionDistances.RemoveAt(minIndex);
+                        attackableIndexes.RemoveAt(minIndex);
+                    }
+                }
+            }
+
+        }
+    }
+
+    IEnumerator reduceHealthBar(float time, int vi, int vj)
+    {
+        yield return new WaitForSeconds(time);
+        //health bar change
+        UnitHealthBars[vi][vj].fillAmount = UnitInfos[vi][vj].currentHealth / UnitInfos[vi][vj].maxHealth;
+    }
+
+    bool setMoveToAttack(Vector2Int attackerIndex, Vector2Int victimIndex)
+    {
+        Vector2 attackerPos = unitPositions[attackerIndex.x][attackerIndex.y];
+        Vector2 enemyPos = unitPositions[victimIndex.x][victimIndex.y];
+        //find attack move square
+        float minDistance = 99999.0f;
+        Vector2 finalPos = new Vector2(0.0f, 0.0f);
+        for (int i=0;i<unitMeleeAttackPositions.Count;i++)
+        {
+            Vector2 tPos = enemyPos + unitMeleeAttackPositions[i] *
+            (UnitInfos[attackerIndex.x][attackerIndex.y].attackRadius - 0.2f);
+            float dist = Vector2.Distance(tPos, attackerPos);
+            if(dist < minDistance)
+            {
+                bool squareOccupied = false;
+                for (int j=0;j<unitPositions.Count;j++)
+                {
+                    for(int k=0;k<unitPositions[j].Count;k++)
+                    {
+                        if(j == attackerIndex.x && k == attackerIndex.y)
+                        {
+                            continue;
+                        }
+                        if (Vector2.Distance(unitPositions[j][k], tPos ) < 2 * unitRadius)
+                        {
+                            squareOccupied = true;
+                            break;
+                        }
+                    }
+                    if(squareOccupied)
+                    {
+                        break;
+                    }
+                }
+                if (!squareOccupied)
+                {
+                    minDistance = dist;
+                    finalPos = tPos;
+                }
+            }
+        }
+        if(minDistance < 99998.0f)
+        {
+            UnitInfos[attackerIndex.x][attackerIndex.y].moveAttackCoordinate = finalPos;
+            if(UnitInfos[attackerIndex.x][attackerIndex.y].status != "movetoattack")
+            {
+                UnitInfos[attackerIndex.x][attackerIndex.y].timeSinceLastAttack = 10.0f;
+                UnitGOAnimators[attackerIndex.x][attackerIndex.y].Play(
+                getAnimationName(UnitInfos[attackerIndex.x][attackerIndex.y].type, "walk"));
+            }
+            UnitInfos[attackerIndex.x][attackerIndex.y].status = "movetoattack";
+            UnitInfos[attackerIndex.x][attackerIndex.y].moveattackTargetId =
+            UnitInfos[victimIndex.x][victimIndex.y].id;
+
+            UnitInfos[attackerIndex.x][attackerIndex.y].recalculateAttackMoveTime = 0.0f;
+
+            return true;
+        }
+        return false;
     }
 
     void removeUnitFromPreviousGroupMovements(int playerIndex, int unitIndex)
@@ -360,11 +698,16 @@ public class BigMain : MonoBehaviour
             {
                 return "polearm_02_walk";
             }
-            if(action == "idle")
+            else if(action == "idle")
             {
                 return "polearm_01_idle";
 
             }
+            else if(action == "attack")
+            {
+                return "polearm_04_attack_A";
+            }
+
         }
 
         return "";
@@ -382,8 +725,13 @@ public class BigMain : MonoBehaviour
         for (int i = 0; i < UnitGOs[player].Count; i++)
         {
             Vector3 point2d = cam.WorldToScreenPoint(UnitGOs[player][i].transform.position);
-            if (minx < point2d.x + radius && point2d.x - radius < maxx 
-            && miny < point2d.y + radius && point2d.y - radius < maxy)
+
+            Vector3 unitHeadPosition = UnitGOs[player][i].transform.position + (new Vector3(0.0f, 1.0f, 0.0f));
+            Vector3 unitHeadPos2d = cam.WorldToScreenPoint(unitHeadPosition);
+            if ((minx < point2d.x + radius && point2d.x - radius < maxx 
+            && miny < point2d.y + radius && point2d.y - radius < maxy) || 
+                (minx < unitHeadPos2d.x + radius && unitHeadPos2d.x - radius < maxx
+            && miny < unitHeadPos2d.y + radius && unitHeadPos2d.y - radius < maxy))
             {
                 unitIndexes.Add(i);
             }
@@ -422,21 +770,21 @@ public class BigMain : MonoBehaviour
         Dictionary<string, float> halberdierStats = new Dictionary<string, float>();
         halberdierStats["maxHealth"] = 120.0f;
         halberdierStats["attack"] = 40.0f;
-        halberdierStats["attackWaitTime"] = 3.0f;
+        halberdierStats["attackWaitTime"] = 4.0f;
         halberdierStats["movementSpeed"] = 1.7f;
-        halberdierStats["attackRadius"] = 5.0f;
+        halberdierStats["attackRadius"] = 3.5f;
 
         Dictionary<string, float> swordStats = new Dictionary<string, float>();
         swordStats["maxHealth"] = 100.0f;
         swordStats["attack"] = 25.0f;
-        swordStats["attackWaitTime"] = 1.5f;
+        swordStats["attackWaitTime"] = 3.0f;
         swordStats["movementSpeed"] = 2.3f;
         swordStats["attackRadius"] = 3.5f;
 
         Dictionary<string, float> spearStats = new Dictionary<string, float>();
         spearStats["maxHealth"] = 100.0f;
         spearStats["attack"] = 30.0f;
-        spearStats["attackWaitTime"] = 2.25f;
+        spearStats["attackWaitTime"] = 4.50f;
         spearStats["movementSpeed"] = 2.0f;
         spearStats["attackRadius"] = 5.0f;
 
@@ -453,14 +801,20 @@ public class BigMain : MonoBehaviour
         unitStats["archer"] = archerStats;
 
         float edgeValue = 23.0f;
-        float[] playerStartX = { -edgeValue, -edgeValue, edgeValue, edgeValue };
-        float[] playerStartZ = { -edgeValue, edgeValue, edgeValue, -edgeValue };
-        float[] playerStartYRot = { 0.0f, 180.0f, 180.0f, 0.0f };
+        //float[] playerStartX = { -edgeValue, -edgeValue, edgeValue, edgeValue };
+        //float[] playerStartZ = { -edgeValue, edgeValue, edgeValue, -edgeValue };
+        playerStartX = new float[]{ -edgeValue, -edgeValue, edgeValue, edgeValue };
+        playerStartZ = new float[] { -edgeValue, -edgeValue + 10.0f, edgeValue, -edgeValue };
+        playerStartYRot = new float[] { 0.0f, 180.0f, 180.0f, 0.0f };
 
-
+        playerUnitSpawnTime = new List<float>();
+        timeSinceLastSpawn = new List<float>();
         //create units
         for (int i = 0; i < 4; i++)
         {
+            playerUnitSpawnTime.Add(3.0f);
+            timeSinceLastSpawn.Add(0.0f);
+
             UnitGOs.Add(new List<GameObject>());
             UnitGOAnimators.Add(new List<Animator>());
             UnitInfos.Add(new List<UnitInfo>());
@@ -548,9 +902,9 @@ public class BigMain : MonoBehaviour
         }
     }
 
-    List<Vector2> calculateUnclutterPositions(float x, float z, int n)
+    List<Vector2> calculateUnclutterPositions(float x, float z, int n, float unclutterRadius)
     {
-        float unclutterRadius = 1.7f;
+        //float unclutterRadius = 1.7f;
         List<Vector2> unclutterPositions = new List<Vector2>();
         unclutterPositions.Add(new Vector2(x, z));
         List<Vector2> left = new List<Vector2>();
@@ -698,6 +1052,20 @@ public class BigMain : MonoBehaviour
         return unclutterPositions;
     }
 
+    int findListMin(List<float> a)
+    {
+        float tmin = 99999.0f;
+        int minIndex = 0;
+        for (int i = 0; i < a.Count; i++)
+        {
+            if (a[i] < tmin)
+            {
+                tmin = a[i];
+                minIndex = i;
+            }
+        }
+        return minIndex;
+    }
 
 
 }
